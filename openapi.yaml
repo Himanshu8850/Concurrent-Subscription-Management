@@ -1,0 +1,550 @@
+openapi: 3.0.3
+info:
+  title: cstl-stripe-clone API
+  description: |
+    API for managing limited-capacity subscription plans with atomic seat reservation,
+    idempotency guarantees, and audit trail.
+
+    ## Key Features
+    - Atomic seat reservation prevents overselling
+    - Idempotency-Key header prevents duplicate purchases
+    - Transaction rollback on payment failure
+    - Complete audit trail for all operations
+    - Trace ID for request correlation
+
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development server
+
+tags:
+  - name: Plans
+    description: Subscription plan management
+  - name: Subscriptions
+    description: Subscription purchase and management
+  - name: Customers
+    description: Customer subscription queries
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Check API health status
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime:
+                    type: number
+
+  /plans:
+    get:
+      tags:
+        - Plans
+      summary: List all plans
+      description: Get all available subscription plans
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, archived]
+          description: Filter by plan status
+        - name: includeInactive
+          in: query
+          schema:
+            type: boolean
+          description: Include inactive plans
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Plan"
+                  count:
+                    type: integer
+
+    post:
+      tags:
+        - Plans
+      summary: Create a plan
+      description: Create a new subscription plan (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlanRequest"
+      responses:
+        "201":
+          description: Plan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /plans/{id}:
+    get:
+      tags:
+        - Plans
+      summary: Get plan by ID
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /plans/{id}/stats:
+    get:
+      tags:
+        - Plans
+      summary: Get plan statistics
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanStatistics"
+
+  /subscriptions/purchase:
+    post:
+      tags:
+        - Subscriptions
+      summary: Purchase a subscription
+      description: |
+        Purchase a subscription to a plan with atomic seat reservation.
+
+        **CRITICAL**: Requires Idempotency-Key header to prevent duplicate purchases.
+
+        The system guarantees:
+        - No overselling (atomic capacity check)
+        - No duplicate charges (idempotency)
+        - Transaction rollback on payment failure
+        - Complete audit trail
+
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID v4 for request deduplication
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: X-Trace-Id
+          in: header
+          schema:
+            type: string
+            format: uuid
+          description: Optional trace ID for request correlation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseRequest"
+      responses:
+        "201":
+          description: Purchase successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "402":
+          $ref: "#/components/responses/PaymentFailed"
+        "409":
+          description: Request already in progress or plan sold out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                soldOut:
+                  value:
+                    code: PLAN_SOLD_OUT
+                    message: Plan is sold out
+                    traceId: "550e8400-e29b-41d4-a716-446655440000"
+                inProgress:
+                  value:
+                    code: REQUEST_IN_PROGRESS
+                    message: A request with this idempotency key is already being processed
+                    traceId: "550e8400-e29b-41d4-a716-446655440000"
+
+  /subscriptions/{id}:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get subscription by ID
+      parameters:
+        - $ref: "#/components/parameters/SubscriptionId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /subscriptions/{id}/cancel:
+    post:
+      tags:
+        - Subscriptions
+      summary: Cancel a subscription
+      parameters:
+        - $ref: "#/components/parameters/SubscriptionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customerId
+              properties:
+                customerId:
+                  type: string
+                  format: objectId
+      responses:
+        "200":
+          description: Subscription cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    example: cancelled
+                  message:
+                    type: string
+
+  /customers/{id}/subscriptions:
+    get:
+      tags:
+        - Customers
+      summary: Get customer subscriptions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: objectId
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, cancelled, expired, pending, failed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscriptions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Subscription"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  skip:
+                    type: integer
+
+components:
+  parameters:
+    PlanId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: objectId
+      description: Plan ObjectId
+
+    SubscriptionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: objectId
+      description: Subscription ObjectId
+
+  schemas:
+    Plan:
+      type: object
+      properties:
+        _id:
+          type: string
+          format: objectId
+        name:
+          type: string
+          example: Professional Plan
+        description:
+          type: string
+        price_cents:
+          type: integer
+          example: 2999
+        duration_days:
+          type: integer
+          example: 30
+        total_capacity:
+          type: integer
+          example: 50
+        subscriptions_left:
+          type: integer
+          example: 23
+        status:
+          type: string
+          enum: [active, inactive, archived]
+        features:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePlanRequest:
+      type: object
+      required:
+        - name
+        - description
+        - price_cents
+        - total_capacity
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        price_cents:
+          type: integer
+          minimum: 0
+        duration_days:
+          type: integer
+          minimum: 1
+          default: 30
+        total_capacity:
+          type: integer
+          minimum: 1
+        features:
+          type: array
+          items:
+            type: string
+
+    PlanStatistics:
+      type: object
+      properties:
+        planId:
+          type: string
+          format: objectId
+        name:
+          type: string
+        totalCapacity:
+          type: integer
+        subscriptionsLeft:
+          type: integer
+        subscriptionsSold:
+          type: integer
+        occupancyPercentage:
+          type: number
+          format: float
+        isSoldOut:
+          type: boolean
+
+    PurchaseRequest:
+      type: object
+      required:
+        - planId
+        - customerId
+        - paymentMethodId
+      properties:
+        planId:
+          type: string
+          format: objectId
+          description: Plan to purchase
+        customerId:
+          type: string
+          format: objectId
+          description: Customer making purchase
+        paymentMethodId:
+          type: string
+          description: Payment method identifier
+
+    PurchaseResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: objectId
+        status:
+          type: string
+          example: active
+        planId:
+          type: string
+          format: objectId
+        planName:
+          type: string
+        customerId:
+          type: string
+          format: objectId
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        amount_cents:
+          type: integer
+        paymentId:
+          type: string
+        traceId:
+          type: string
+          format: uuid
+
+    Subscription:
+      type: object
+      properties:
+        _id:
+          type: string
+          format: objectId
+        planId:
+          $ref: "#/components/schemas/Plan"
+        customerId:
+          type: string
+          format: objectId
+        status:
+          type: string
+          enum: [active, cancelled, expired, pending, failed]
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        paymentId:
+          type: string
+        paymentStatus:
+          type: string
+          enum: [pending, succeeded, failed, refunded]
+        amount_cents:
+          type: integer
+        traceId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          example: PLAN_SOLD_OUT
+        message:
+          type: string
+          example: Plan is sold out
+        traceId:
+          type: string
+          format: uuid
+        details:
+          type: object
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: VALIDATION_ERROR
+            message: planId is required
+            traceId: "550e8400-e29b-41d4-a716-446655440000"
+            details:
+              field: planId
+
+    PaymentFailed:
+      description: Payment processing failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: PAYMENT_FAILED
+            message: Payment processing failed
+            traceId: "550e8400-e29b-41d4-a716-446655440000"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: NOT_FOUND
+            message: Resource not found
+            traceId: "550e8400-e29b-41d4-a716-446655440000"
