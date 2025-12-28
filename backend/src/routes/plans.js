@@ -82,4 +82,35 @@ router.patch('/:id', objectIdValidation('id'), async (req, res, next) => {
   }
 });
 
+/**
+ * @route   PUT /api/plans/:id
+ * @desc    Update plan (admin)
+ * @access  Private
+ */
+router.put('/:id', objectIdValidation('id'), async (req, res, next) => {
+  try {
+    const plan = await planService.updatePlan(req.params.id, req.body);
+    res.json(plan);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @route   DELETE /api/plans/:id
+ * @desc    Delete plan (admin)
+ * @access  Private
+ */
+router.delete('/:id', objectIdValidation('id'), async (req, res, next) => {
+  try {
+    const plan = await planService.deletePlan(req.params.id);
+    res.json({
+      message: 'Plan deleted successfully',
+      plan,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

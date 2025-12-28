@@ -88,10 +88,40 @@ async function getPlanStatistics(planId) {
   };
 }
 
+/**
+ * Delete plan
+ */
+async function deletePlan(planId) {
+  const plan = await Plan.findById(planId);
+
+  if (!plan) {
+    throw new AppError('Plan not found', 404, 'PLAN_NOT_FOUND');
+  }
+
+  // Check if plan has active subscriptions
+  const { Subscription } = await import('../models/index.js');
+  const activeCount = await Subscription.countDocuments({
+    plan_id: planId,
+    status: { $in: ['active', 'pending'] },
+  });
+
+  if (activeCount > 0) {
+    throw new AppError(
+      'Cannot delete plan with active subscriptions',
+      400,
+      'PLAN_HAS_SUBSCRIPTIONS'
+    );
+  }
+
+  await Plan.findByIdAndDelete(planId);
+  return plan.toObject();
+}
+
 export default {
   getPlans,
   getPlan,
   createPlan,
   updatePlan,
   getPlanStatistics,
+  deletePlan,
 };

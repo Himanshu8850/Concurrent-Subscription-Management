@@ -29,7 +29,10 @@ async function runConcurrencyTest() {
 
     // Create a test plan with limited capacity
     const TEST_CAPACITY = 10;
-    const CONCURRENT_REQUESTS = 50;
+    const NUM_USERS = 20; // Multiple users
+    const REQUESTS_PER_USER = 3; // Multiple requests per user
+    const DUPLICATE_REQUESTS = 2; // Same idempotency key used multiple times
+    const TOTAL_REQUESTS = NUM_USERS * REQUESTS_PER_USER;
 
     logger.info(`Creating test plan with capacity: ${TEST_CAPACITY}`);
     const testPlan = await Plan.create({
@@ -43,49 +46,95 @@ async function runConcurrencyTest() {
     });
     logger.info(`✓ Test plan created: ${testPlan._id}`);
 
-    // Get or create test customer
-    let testCustomer = await Customer.findOne({ email: 'concurrency.test@example.com' });
-    if (!testCustomer) {
-      testCustomer = await Customer.create({
-        name: 'Concurrency Test User',
-        email: 'concurrency.test@example.com',
-        status: 'active',
-        paymentMethods: [
-          {
-            id: 'pm_test_concurrency',
-            type: 'card',
-            last4: '0000',
-            isDefault: true,
-          },
-        ],
-      });
+    // Create multiple test customers
+    logger.info(`Creating ${NUM_USERS} test customers...`);
+    const testCustomers = [];
+    for (let i = 0; i < NUM_USERS; i++) {
+      const email = `concurrency.test.${i}@example.com`;
+      let customer = await Customer.findOne({ email });
+      if (!customer) {
+        customer = await Customer.create({
+          name: `Concurrency Test User ${i}`,
+          email,
+          status: 'active',
+          paymentMethods: [
+            {
+              id: `pm_test_${i}`,
+              type: 'card',
+              last4: String(i).padStart(4, '0'),
+              isDefault: true,
+            },
+          ],
+        });
+      }
+      testCustomers.push(customer);
     }
-    logger.info(`✓ Test customer: ${testCustomer._id}`);
+    logger.info(`✓ Created ${testCustomers.length} test customers`);
 
     // Prepare concurrent requests
-    logger.info(`\n⚡ Firing ${CONCURRENT_REQUESTS} concurrent purchase requests...\n`);
+    logger.info(
+      `\n⚡ Firing ${TOTAL_REQUESTS} concurrent purchase requests from ${NUM_USERS} users...\n`
+    );
+    logger.info(`   - ${REQUESTS_PER_USER} requests per user`);
+    logger.info(`   - ${DUPLICATE_REQUESTS} duplicate requests (same idempotency key)\n`);
 
     const purchasePromises = [];
     const startTime = Date.now();
 
-    for (let i = 0; i < CONCURRENT_REQUESTS; i++) {
-      const promise = fetch(`${API_URL}/api/subscriptions/purchase`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': uuidv4(),
-        },
-        body: JSON.stringify({
-          planId: testPlan._id.toString(),
-          customerId: testCustomer._id.toString(),
-          paymentMethodId: 'pm_test_concurrency',
-        }),
-      }).then(async res => {
-        const data = await res.json();
-        return { status: res.status, data };
-      });
+    // Track idempotency keys for duplicate testing
+    const idempotencyKeys = {};
 
-      purchasePromises.push(promise);
+    // Each user makes multiple requests
+    for (let userIdx = 0; userIdx < NUM_USERS; userIdx++) {
+      const customer = testCustomers[userIdx];
+
+      for (let reqIdx = 0; reqIdx < REQUESTS_PER_USER; reqIdx++) {
+        // For some requests, reuse an idempotency key (simulate duplicate requests)
+        let idempotencyKey;
+        if (reqIdx < DUPLICATE_REQUESTS && userIdx > 0) {
+          // Use the same key as the first request for this user
+          idempotencyKey = idempotencyKeys[`user_${userIdx}_req_0`];
+        } else {
+          idempotencyKey = uuidv4();
+          idempotencyKeys[`user_${userIdx}_req_${reqIdx}`] = idempotencyKey;
+        }
+
+        const promise = fetch(`${API_URL}/api/subscriptions/purchase`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({
+            planId: testPlan._id.toString(),
+            customerId: customer._id.toString(),
+            paymentMethodId: customer.paymentMethods[0].id,
+          }),
+        })
+          .then(async res => {
+            const data = await res.json();
+            return {
+              status: res.status,
+              data,
+              userIdx,
+              reqIdx,
+              idempotencyKey,
+              isDuplicate: reqIdx < DUPLICATE_REQUESTS && userIdx > 0,
+            };
+          })
+          .catch(error => {
+            return {
+              status: 0,
+              data: { error: error.message },
+              userIdx,
+              reqIdx,
+              idempotencyKey,
+              isDuplicate: false,
+            };
+          });
+
+        purchasePromises.push(promise);
+      }
     }
 
     // Wait for all requests to complete
@@ -98,6 +147,8 @@ async function runConcurrencyTest() {
     const failed = results.filter(r => r.status !== 201);
     const soldOut = failed.filter(r => r.data.code === 'PLAN_SOLD_OUT');
     const paymentFailed = failed.filter(r => r.data.code === 'PAYMENT_FAILED');
+    const duplicates = results.filter(r => r.isDuplicate);
+    const duplicateSuccesses = duplicates.filter(r => r.status === 201);
 
     // Detect transient write conflicts returned as 500 errors
     const isWriteConflict = r => {
@@ -111,10 +162,21 @@ async function runConcurrencyTest() {
         r.data.code !== 'PLAN_SOLD_OUT' && r.data.code !== 'PAYMENT_FAILED' && !isWriteConflict(r)
     );
 
+    // Analyze per-user results
+    const usersWithPurchases = new Set(successful.map(r => r.userIdx));
+    const uniqueCustomersWithSubscriptions = usersWithPurchases.size;
+
     logger.info('📊 Test Results:\n');
     logger.info(`Duration: ${duration}ms`);
-    logger.info(`Total Requests: ${CONCURRENT_REQUESTS}`);
+    logger.info(`Total Requests: ${TOTAL_REQUESTS}`);
+    logger.info(`  - From ${NUM_USERS} different users`);
+    logger.info(`  - ${REQUESTS_PER_USER} requests per user`);
+    logger.info(`  - ${duplicates.length} duplicate requests (reused idempotency key)\n`);
     logger.info(`Successful Purchases: ${successful.length}`);
+    logger.info(`  - Unique users with purchases: ${uniqueCustomersWithSubscriptions}`);
+    logger.info(
+      `  - Duplicate requests succeeded: ${duplicateSuccesses.length} (should return cached response)`
+    );
     logger.info(`Failed (Sold Out): ${soldOut.length}`);
     logger.info(`Failed (Payment): ${paymentFailed.length}`);
     logger.info(`Failed (Write Conflict): ${writeConflicts.length}`);
@@ -198,6 +260,11 @@ async function runConcurrencyTest() {
     logger.info('🧹 Cleaning up test data...');
     await Subscription.deleteMany({ planId: testPlan._id });
     await Plan.findByIdAndDelete(testPlan._id);
+
+    // Cleanup test customers
+    for (const customer of testCustomers) {
+      await Customer.findByIdAndDelete(customer._id);
+    }
     logger.info('✓ Cleanup complete');
 
     process.exit(allPassed ? 0 : 1);

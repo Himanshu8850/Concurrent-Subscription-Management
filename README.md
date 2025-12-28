@@ -1,5 +1,64 @@
 # cstl-stripe-clone — Subscription Management System
 
+## Project Description
+
+**cstl-stripe-clone** is a production-grade subscription management platform designed to handle high-concurrency scenarios where multiple customers purchase limited-capacity plans simultaneously. Built with Node.js, MongoDB, and React, this system demonstrates enterprise-level solutions to common e-commerce challenges: preventing overselling, ensuring idempotent operations, maintaining transactional integrity, and providing comprehensive audit trails.
+
+### What This Project Solves
+
+In real-world SaaS environments, subscription plans often have capacity constraints (e.g., limited seats, licenses, or inventory). When hundreds of customers attempt to purchase simultaneously, naive implementations fail catastrophically:
+
+- **Overselling**: Race conditions cause systems to sell 47 subscriptions for a 10-seat plan
+- **Double Charging**: Network retries result in duplicate payments without duplicate subscriptions
+- **Data Inconsistency**: Payment succeeds but database records fail, leaving orphaned transactions
+- **Zero Accountability**: No audit trail to reconcile financial discrepancies
+
+This project implements battle-tested patterns used by companies like Stripe, Shopify, and AWS to solve these exact problems at scale.
+
+### Key Features
+
+🔒 **Atomic Seat Reservation**: Uses MongoDB's `findOneAndUpdate` with atomic operations to guarantee no overselling, even under extreme concurrent load (50+ simultaneous requests)
+
+🔑 **Request Idempotency**: Implements RFC-compliant idempotency keys (24-hour deduplication window) to safely handle network retries and prevent duplicate charges
+
+💳 **Transactional Consistency**: Leverages MongoDB transactions to ensure all-or-nothing operations—if payment fails, seat reservations automatically roll back
+
+📊 **Complete Audit Logging**: Every capacity change, subscription creation, and state transition is logged with millisecond timestamps for financial reconciliation
+
+🚀 **Production-Ready**: Includes rate limiting, structured logging with correlation IDs, OpenAPI specification, comprehensive error handling, and Docker orchestration
+
+⚡ **Proven Under Load**: Ships with concurrency tests that validate system integrity under 50+ simultaneous requests with zero violations
+
+### Technical Highlights
+
+- **Backend**: Express.js with layered architecture (routes → services → models)
+- **Database**: MongoDB with replica sets for ACID transactions
+- **Caching**: Redis for distributed idempotency tracking and session management
+- **Frontend**: React 18 with Vite, featuring real-time purchase flows and admin dashboards
+- **Testing**: Automated concurrency tests, integration tests, and load testing scripts
+- **DevOps**: Docker Compose for local development, Makefile for common operations
+
+### Use Cases
+
+This architecture is suitable for:
+
+- SaaS platforms with seat-based licensing
+- Event ticketing systems with limited inventory
+- Cloud resource allocation with quota management
+- Any system requiring high-integrity financial transactions under concurrent load
+
+### Learning Outcomes
+
+By studying this project, you'll understand:
+
+- How to implement distributed idempotency without race conditions
+- Database transaction patterns for maintaining consistency
+- Atomic operations for preventing overselling in high-concurrency scenarios
+- Audit logging strategies for financial reconciliation
+- API design patterns for production-grade payment systems
+
+---
+
 ## Problem Statement
 
 ### The Challenge

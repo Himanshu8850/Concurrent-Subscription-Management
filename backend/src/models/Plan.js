@@ -77,6 +77,16 @@ PlanSchema.virtual('occupancyPercentage').get(function () {
   return ((this.total_capacity - this.subscriptions_left) / this.total_capacity) * 100;
 });
 
+// Virtual: price in dollars (converts from cents)
+PlanSchema.virtual('price').get(function () {
+  return this.price_cents / 100;
+});
+
+// Virtual: duration in days
+PlanSchema.virtual('duration').get(function () {
+  return this.duration_days;
+});
+
 // Pre-save validation: ensure subscriptions_left doesn't exceed capacity
 PlanSchema.pre('save', function (next) {
   if (this.subscriptions_left > this.total_capacity) {

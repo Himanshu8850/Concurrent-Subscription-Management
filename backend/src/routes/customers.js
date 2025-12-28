@@ -12,15 +12,34 @@ const router = express.Router();
  */
 router.get('/', async (req, res, next) => {
   try {
-    const customers = await Customer.find({}, { name: 1, email: 1 }).sort({ createdAt: -1 }).lean();
-    res.json({ customers });
+    const customers = await Customer.find({}, { name: 1, email: 1, status: 1, created_at: 1 })
+      .sort({ created_at: -1 })
+      .lean();
+    res.json(customers);
   } catch (error) {
     next(error);
   }
 });
 
 /**
- * @route   GET /api/customers/:id/subscriptions
+ * @route   GET /api/customers/:id
+ * @desc    Get customer by ID
+ * @access  Public (should validate ownership in production)
+ */
+router.get('/:id', objectIdValidation('id'), async (req, res, next) => {
+  try {
+    const customer = await Customer.findById(req.params.id).lean();
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+    res.json(customer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @route   GET /api/subscriptions/customer/:id
  * @desc    Get customer subscriptions
  * @access  Public (should validate ownership in production)
  */

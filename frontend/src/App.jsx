@@ -1,13 +1,18 @@
 import { useState } from "react";
+import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import PlansList from "./components/PlansList";
 import PurchaseModal from "./components/PurchaseModal";
 import SuccessModal from "./components/SuccessModal";
+import AdminDashboard from "./pages/AdminDashboard";
+import PlanManagement from "./pages/PlanManagement";
+import CustomerManagement from "./pages/CustomerManagement";
+import RequestMonitor from "./pages/RequestMonitor";
 import "./index.css";
 
 // Mock customer ID - in production this would come from auth
 const MOCK_CUSTOMER_ID = "676e8a1b2c3d4e5f6a7b8c9d";
 
-function App() {
+function CustomerApp() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [purchaseSuccess, setPurchaseSuccess] = useState(null);
 
@@ -41,9 +46,17 @@ function App() {
                 Subscription Management Platform
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
-              <span className="text-sm text-gray-600">System Online</span>
+            <div className="flex items-center gap-4">
+              <Link
+                to="/admin"
+                className="text-blue-600 hover:text-blue-800 font-medium"
+              >
+                Admin Dashboard
+              </Link>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                <span className="text-sm text-gray-600">System Online</span>
+              </div>
             </div>
           </div>
         </div>
@@ -114,6 +127,23 @@ function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Customer App */}
+        <Route path="/" element={<CustomerApp />} />
+
+        {/* Admin Dashboard */}
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/plans" element={<PlanManagement />} />
+        <Route path="/admin/customers" element={<CustomerManagement />} />
+        <Route path="/admin/requests" element={<RequestMonitor />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

@@ -55,6 +55,21 @@ const api = {
     return response.data;
   },
 
+  createPlan: async (planData) => {
+    const response = await apiClient.post("/plans", planData);
+    return response.data;
+  },
+
+  updatePlan: async (planId, planData) => {
+    const response = await apiClient.put(`/plans/${planId}`, planData);
+    return response.data;
+  },
+
+  deletePlan: async (planId) => {
+    const response = await apiClient.delete(`/plans/${planId}`);
+    return response.data;
+  },
+
   // Subscriptions
   purchaseSubscription: async (planId, customerId, paymentMethodId) => {
     const idempotencyKey = uuidv4();
@@ -90,13 +105,42 @@ const api = {
   },
 
   // Customers
+  getCustomers: async () => {
+    const response = await apiClient.get("/customers");
+    return response.data;
+  },
+
+  getCustomer: async (customerId) => {
+    const response = await apiClient.get(`/customers/${customerId}`);
+    return response.data;
+  },
+
   getCustomerSubscriptions: async (customerId, params = {}) => {
     const response = await apiClient.get(
-      `/customers/${customerId}/subscriptions`,
+      `/subscriptions/customer/${customerId}`,
       { params }
     );
     return response.data;
   },
+
+  // Audit Logs
+  getRecentLogs: async (params = {}) => {
+    const response = await apiClient.get("/audit-logs/recent", { params });
+    return response.data;
+  },
+
+  getLogStats: async (timeframe = "1h") => {
+    const response = await apiClient.get("/audit-logs/stats", {
+      params: { timeframe },
+    });
+    return response.data;
+  },
+
+  getLogsByTrace: async (traceId) => {
+    const response = await apiClient.get(`/audit-logs/trace/${traceId}`);
+    return response.data;
+  },
 };
 
+export { apiClient };
 export default api;

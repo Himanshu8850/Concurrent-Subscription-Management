@@ -18,7 +18,8 @@ export default function PurchaseModal({
       const subscription = await api.purchaseSubscription(
         plan._id,
         customerId,
-        "pm_test_card" // Mock payment method
+        "pm_test_card", // Mock payment method
+        plan.subscriptions_left
       );
 
       onSuccess(subscription);

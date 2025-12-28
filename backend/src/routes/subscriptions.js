@@ -47,6 +47,23 @@ router.post('/purchase', purchaseSubscriptionValidation, async (req, res, next) 
 });
 
 /**
+ * @route   GET /api/subscriptions/customer/:customerId
+ * @desc    Get subscriptions for a customer
+ * @access  Public (should validate ownership in production)
+ */
+router.get('/customer/:customerId', objectIdValidation('customerId'), async (req, res, next) => {
+  try {
+    const result = await subscriptionService.getCustomerSubscriptions(req.params.customerId, {
+      limit: 50,
+      skip: 0,
+    });
+    res.json(result.subscriptions);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * @route   GET /api/subscriptions/:id
  * @desc    Get subscription by ID
  * @access  Public (should validate ownership in production)
